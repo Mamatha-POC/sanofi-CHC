@@ -1,0 +1,110 @@
+name: Build
+
+# to trigger once a pr is raised in this repo
+on:
+  pull_request:
+
+# to trigger if there is a push event on the given branch
+on:
+  push:
+    branches:
+      - master
+
+# to trigger on creation of tag of below regex format in the repo
+on:
+  push:
+    tags:
+      - '**tc[0-9]+'
+      - '[0-9]+\.[0-9]+\.[0-9]+'
+
+# to trigger after successful completion of a dependant workflow
+on:
+  workflow_run:
+    workflows: [Master-Build]
+    types: [completed]
+    branches: [master]
+
+# to trigger based on the cron syntax
+on:
+  schedule:
+    - cron:  '30 12 * * 6'
+
+# to trigger the workflow manually on need basis
+on: 
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'release_version ex: v2.0.1'     
+        required: true
+
+# to setup environment variables
+env:
+  REPONAME: ${{ github.event.repository.name }}
+  WORKSPACE: ${{ github.workspace }}
+  GITHUB_PAT: ${{ secrets.GITHUB_PAT }} # first we have to add them to secrets and use them here
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}   
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+jobs:
+  Build:
+    runs-on: ubuntu-latest # to run github hosted runner (never give latest)
+    # to run inside a container 
+    runs-on: ubuntu-latest/sanofi-linux
+     container:
+      image: sanofi-images/dev/build_image:1.0.0
+      credentials:
+        username: ${{ env.DOCKER_USERNAME }}
+        password: ${{ env.DOCKER_PASSWORD }}     
+      volumes:
+        - /opt/github_actions_mapping/:/opt/github_actions_mapping/
+      
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.3.4
+        with:
+          fetch-depth: 0
+          submodules: 'true'
+          ref: master
+          token: ${{ env.GITHUB_PAT }}
+
+      - name: Set up JDK
+        uses: actions/setup-java@v1
+        with:
+          java-version: '11'
+
+      - name: Build with Maven
+        run: mvn clean install -U
+
+      - name: SonarCloud scan
+        uses: sonarsource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ env.GITHUB_PAT }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          organization: "my-organization"
+          project-key: "my-project"
+          sources: "src/main/java"
+          exclusions: "**/generated-sources/**,**/generated-test-sources/**"
+          java-version: "11"
+
+      - name: Set up JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v1
+        with:
+          jfrog-url: "https://sanofi.jfrog.io/artifactory/"
+          jfrog-username: ${{ secrets.ARTIFACTORY_USERNAME }}
+          jfrog-password: ${{ secrets.ARTIFACTORY_PASSWORD }}
+
+      - name: Push artifact to Artifactory
+        uses: jfrog/artifactory-generic-upload@v2
+        with:
+          spec: '{"files": [{"pattern": "target/*.jar", "target": "my-repo-local/"}]}'
+
+
+
+      
+
+

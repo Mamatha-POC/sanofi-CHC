@@ -1,0 +1,44 @@
+name: Build
+
+# to trigger if there is a push event on the given branch
+on:
+  push:
+    branches:
+      - master
+
+env:
+  REPONAME: ${{ github.event.repository.name }}
+  WORKSPACE: ${{ github.workspace }}
+  GITHUB_PAT: ${{ secrets.GITHUB_PAT }} # first we have to add them to secrets and use them here
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}   
+  DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+  ARTIFACTORY_TOKEN: ${{ secrets.ARTIFACTORY_TOKEN }}
+  SONAR_CREDS_USR: ${{ secrets.SONAR_CREDS_USR }}
+  SONARQUBE_URL: ${{ secrets.SONARQUBE_URL }}
+  SONAR_CREDS_PSW: ${{ secrets.SONAR_CREDS_PSW }}
+  ARTIFACTORY_URL: ${{ secrets.ARTIFACTORY_URL }}
+
+jobs:
+  Build:
+    runs-on: sanofi-linux # to run on a self-hosted runner(single label) directly
+    runs-on: [self-hosted, linux, x64, sanofi] # self hosted runner with multiple labels
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2.3.4
+        with:
+          fetch-depth: 0
+          submodules: 'true'
+          ref: master
+          token: ${{ env.GITHUB_PAT }}
+
+      - name: Build with Maven
+        run: mvn clean install -U
+
+      - name: Sonar-Scan
+        run: 
+          $SONAR_PATH/sonar-scanner -Dsonar.projectName=$REPONAME -Dsonar.projectKey=$REPONAME -Dsonar.sourceEncoding=UTF-8 -Dsonar.projectBaseDir=${WORKSPACE} -Dsonar.sources=src/main/java  -Dsonar.java.binaries=target/classes -Dsonar.host.url=$SONARQUBE_URL -Dsonar.login=$SONAR_CREDS_USR -Dsonar.password=$SONAR_CREDS_PSW
+
+      - name: upload artifact to jfrog
+        run:
+          curl -H "X-JFrog-Art-Api:${ARTIFACTORY_TOKEN}" -T <LOCAL_FILE_PATH> ""https://${ARTIFACTORY_URL}/<REPOSITORY>/<PATH>/<ARTIFACT_NAME>""
